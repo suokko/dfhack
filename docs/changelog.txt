@@ -316,6 +316,9 @@ changelog.txt uses a syntax similar to RST, with a few special sequences:
 ## Structures
 - New globals: ``soul_next_id``
 
+## Lua
+- Added ``profiler`` module to measure lua performance
+
 ================================================================================
 # 0.44.05-alpha1
 
