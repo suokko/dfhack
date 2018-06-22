@@ -1870,8 +1870,8 @@ struct dwarf_monitor_hook : public df::viewscreen_dwarfmodest
     {
         INTERPOSE_NEXT(render)();
 
-        CoreSuspendClaimer suspend;
-        if (Maps::IsValid())
+        CoreSuspender suspend{std::defer_lock};
+        if (suspend.try_lock_for() && Maps::IsValid())
         {
             dm_lua::call("render_all");
         }

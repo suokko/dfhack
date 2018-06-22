@@ -29,6 +29,7 @@ distribution.
 #include <climits>
 #include <stdint.h>
 #include <vector>
+#include <chrono>
 #include <sstream>
 #include <cstdio>
 
@@ -344,6 +345,24 @@ inline T clip_range(T a, T1 minv, T2 maxv) {
     if (a > maxv) return maxv;
     return a;
 }
+
+namespace dts { namespace chrono_literals {
+#if __cplusplus >= 201402L && !defined(_MSC_VER)
+#warning "Literals should be changed to standard version without underscore"
+#endif
+constexpr std::chrono::hours operator "" _h(unsigned long long v)
+{ return std::chrono::hours{v}; }
+constexpr std::chrono::minutes operator "" _min(unsigned long long v)
+{ return std::chrono::minutes{v}; }
+constexpr std::chrono::seconds operator "" _s(unsigned long long v)
+{ return std::chrono::seconds{v}; }
+constexpr std::chrono::milliseconds operator "" _ms(unsigned long long v)
+{ return std::chrono::milliseconds{v}; }
+constexpr std::chrono::microseconds operator "" _us(unsigned long long v)
+{ return std::chrono::microseconds{v}; }
+constexpr std::chrono::nanoseconds operator "" _ns(unsigned long long v)
+{ return std::chrono::nanoseconds{v}; }
+} }
 
 DFHACK_EXPORT int random_int(int max);
 

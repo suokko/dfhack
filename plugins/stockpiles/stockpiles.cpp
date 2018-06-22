@@ -329,7 +329,10 @@ bool manage_settings ( building_stockpilest *sp )
     auto L = Lua::Core::State;
     color_ostream_proxy out ( Core::getInstance().getConsole() );
 
-    CoreSuspendClaimer suspend;
+    CoreSuspender suspend{std::defer_lock};
+    if ( !suspend.try_lock_for() )
+        return false;
+
     Lua::StackUnwinder top ( L );
 
     if ( !lua_checkstack ( L, 2 ) )
@@ -351,7 +354,10 @@ bool show_message_box ( const std::string & title,  const std::string & msg,  bo
     auto L = Lua::Core::State;
     color_ostream_proxy out ( Core::getInstance().getConsole() );
 
-    CoreSuspendClaimer suspend;
+    CoreSuspender suspend{std::defer_lock};
+    if ( !suspend.try_lock_for() )
+        return false;
+
     Lua::StackUnwinder top ( L );
 
     if ( !lua_checkstack ( L, 4 ) )

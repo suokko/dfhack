@@ -70,7 +70,11 @@ struct dwarmode_render_hook : viewscreen_dwarfmodest{
     typedef df::viewscreen_dwarfmodest interpose_base;
     DEFINE_VMETHOD_INTERPOSE(void,render,())
     {
-        CoreSuspendClaimer suspend;
+        CoreSuspender suspend{std::defer_lock};
+        if ( !suspend.try_lock_for() ) {
+            INTERPOSE_NEXT(render)();
+            return;
+        }
         engine->preRender();
         INTERPOSE_NEXT(render)();
         engine->calculate();
@@ -83,7 +87,11 @@ struct dungeon_render_hook : viewscreen_dungeonmodest{
     typedef df::viewscreen_dungeonmodest interpose_base;
     DEFINE_VMETHOD_INTERPOSE(void,render,())
     {
-        CoreSuspendClaimer suspend;
+        CoreSuspender suspend{std::defer_lock};
+        if ( !suspend.try_lock_for() ) {
+            INTERPOSE_NEXT(render)();
+            return;
+        }
         engine->preRender();
         INTERPOSE_NEXT(render)();
         engine->calculate();
@@ -310,7 +318,7 @@ DFhackCExport command_result plugin_onstatechange(color_ostream &out, state_chan
     {
     case SC_VIEWSCREEN_CHANGED:
         {
-            CoreSuspendClaimer suspender;
+            CoreSuspender suspender;
             if(current_mode==MODE_LIGHT)
             {
                 engine->clear();

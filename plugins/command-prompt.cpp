@@ -190,7 +190,9 @@ void viewscreen_commandpromptst::render()
 }
 void viewscreen_commandpromptst::submit()
 {
-    CoreSuspendClaimer suspend;
+    CoreSuspender suspend{std::defer_lock};
+    if (suspend.try_lock_for())
+        return;
     if(is_response)
     {
         Screen::dismiss(this);

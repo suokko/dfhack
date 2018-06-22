@@ -32,6 +32,7 @@ distribution.
 #include <map>
 #include <stdint.h>
 #include "Console.h"
+#include "MiscUtils.h"
 #include "modules/Graphic.h"
 
 #include <atomic>
@@ -290,7 +291,7 @@ namespace DFHack
          * \sa DFHack::CoreSuspender
          * \{
          */
-        std::recursive_mutex CoreSuspendMutex;
+        std::recursive_timed_mutex CoreSuspendMutex;
         std::condition_variable_any CoreWakeup;
         std::atomic<std::thread::id> ownerThread;
         std::atomic<size_t> toolCount;
@@ -300,13 +301,6 @@ namespace DFHack
         friend class ServerConnection;
         friend class CoreSuspender;
         ServerMain *server;
-    };
-
-    template<typename Derived>
-    struct ToolIncrement {
-        ToolIncrement(std::atomic<size_t>& toolCount) {
-            toolCount += 1;
-        }
     };
 
     /*!
@@ -332,29 +326,88 @@ namespace DFHack
      *   no more tools are queued trying to acquire the
      *   Core::CoreSuspenderMutex.
      */
-    class CoreSuspender : protected ToolIncrement<CoreSuspender>,
-                          public std::unique_lock<std::recursive_mutex> {
-        using parent_t = std::unique_lock<std::recursive_mutex>;
-        Core *core;
+    class CoreSuspender : public std::unique_lock<std::recursive_timed_mutex> {
+        using parent_t = std::unique_lock<std::recursive_timed_mutex>;
+        static_assert(alignof(Core) > 1, "Alignment of core should be more than 1\n");
+        union {
+            Core* core;
+            struct {
+                intptr_t deadlock : 1;
+                intptr_t core : (sizeof(Core*)*CHAR_BIT-1);
+            } bits;
+        };
         std::thread::id tid;
+
     public:
-        CoreSuspender() : CoreSuspender(&Core::getInstance()) { }
-        CoreSuspender(bool) : CoreSuspender(&Core::getInstance()) { }
-        CoreSuspender(Core* core, bool) : CoreSuspender(core) { }
-        CoreSuspender(Core* core) :
-            /* Increment the wait count */
-            ToolIncrement{core->toolCount},
-            /* Lock the core */
-            parent_t{core->CoreSuspendMutex},
+        CoreSuspender() : CoreSuspender{&Core::getInstance()} { }
+        CoreSuspender(bool) : CoreSuspender{&Core::getInstance()} { }
+        CoreSuspender(Core* core, bool) : CoreSuspender{core} { }
+        CoreSuspender(Core* core) : CoreSuspender{core, std::defer_lock}
+        {
+            lock();
+        }
+        CoreSuspender(std::defer_lock_t t) : CoreSuspender{&Core::getInstance(), t} { }
+        CoreSuspender(Core* core, std::defer_lock_t) :
+            parent_t{core->CoreSuspendMutex, std::defer_lock},
             core{core},
-            /* Mark this thread to be the core owner */
-            tid{core->ownerThread.exchange(std::this_thread::get_id())}
-        { }
+            tid{}
+        {}
+
+        void lock() {
+            core->toolCount += 1;
+
+            parent_t::lock();
+            tid = core->ownerThread.exchange(std::this_thread::get_id());
+        }
+
+        /*!
+         * Try to lock the core suspender mutex for a predefined time period. If
+         * the mutex stays blocked longer than time period then we assume a dead
+         * lock happened and caller must try a fallback without memory access to
+         * DF structures. The deadlock shouldn't happen unless DF changes its
+         * threading but the deadlock detection aims to minimize impact of
+         * future incompatible DF changes.
+         */
+        bool try_lock_for() {
+
+            core->toolCount += 1;
+
+            using namespace dts::chrono_literals;
+            bool dl = is_deadlock_thread();
+            // Avoid recursive CoreSuspenders causing long delay with deadlock
+            if (dl)
+                return false;
+
+            // 200ms is a short but mostly fast enough to avoid too many times
+            // unless there is deadlock. DF needs to run lower than 5fps to
+            // have any chance of spurious failure.
+            if (!parent_t::try_lock_for(200_ms)) {
+                core->getConsole().printerr("Error: CoreSuspender::try_lock_for timeout. This is either deadlock or very slow frame.\n");
+                is_deadlock_thread() = true;
+                bits.deadlock = true;
+                return false;
+            }
+            tid = core->ownerThread.exchange(std::this_thread::get_id());
+            return true;
+        }
+
         ~CoreSuspender() {
-            /* Restore core owner to previous value */
+            if (!owns_lock()) {
+                if (bits.deadlock) {
+                    is_deadlock_thread() = false;
+                    bits.deadlock = false;
+                }
+                sub_tool_count();
+                return;
+            }
+            // Restore core owner to previous value
             core->ownerThread.store(tid);
             if (tid == std::thread::id{})
                 Lua::Core::Reset(core->getConsole(), "suspend");
+            sub_tool_count();
+        }
+    private:
+        void sub_tool_count() {
             /* Notify core to continue when all queued tools have completed
              * 0 = None wants to own the core
              * 1+ = There are tools waiting core access
@@ -363,7 +416,9 @@ namespace DFHack
             if (core->toolCount.fetch_add(-1) == 1)
                 core->CoreWakeup.notify_one();
         }
+        static bool& is_deadlock_thread() {
+            static thread_local bool deadlock = false;
+            return deadlock;
+        }
     };
-
-    using CoreSuspendClaimer = CoreSuspender;
 }

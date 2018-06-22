@@ -46,8 +46,8 @@ namespace DFHack
 
            DEFINE_VMETHOD_INTERPOSE(int, foo, (int arg)) {
                // If needed by the code, claim the suspend lock.
-               // DO NOT USE THE USUAL CoreSuspender, OR IT WILL DEADLOCK!
-               // CoreSuspendClaimer suspend;
+               ... CoreSuspender suspend{std::defer_lock};
+               ... if (!suspend.try_lock_for()) return INTERPOSE_NEXT(foo)(arg);
                ...
                ... this->field ... // access fields of the df::someclass object
                ...

@@ -252,9 +252,11 @@ struct work_hook : df::building_workshopst{
             {
                 if(world->frame_counter % def->skip_updates == 0)
                 {
-                    CoreSuspendClaimer suspend;
-                    color_ostream_proxy out(Core::getInstance().getConsole());
-                    onUpdateAction(out,this);
+                    CoreSuspender suspend{std::defer_lock};
+                    if (suspend.try_lock_for()) {
+                        color_ostream_proxy out(Core::getInstance().getConsole());
+                        onUpdateAction(out,this);
+                    }
                 }
             }
         }

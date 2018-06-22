@@ -140,7 +140,9 @@ protected:
     std::string indicator;
     void update_indicator()
     {
-        CoreSuspendClaimer suspend;
+        CoreSuspender suspend{std::defer_lock};
+        if (!suspend.try_lock_for())
+            return;
         buffered_color_ostream out;
         Core::getInstance().runCommand(out, "prospect");
         auto fragments = out.fragments();

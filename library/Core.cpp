@@ -2005,7 +2005,7 @@ int Core::Update()
     // Pretend this thread has suspended the core in the usual way,
     // and run various processing hooks.
     {
-        CoreSuspendClaimer suspend(true);
+        CoreSuspender suspend;
 
         // Initialize the core
         bool first_update = false;
@@ -2263,7 +2263,7 @@ int Core::Shutdown ( void )
     d->hotkeythread.join();
     d->iothread.join();
 
-    CoreSuspendClaimer suspend;
+    CoreSuspender suspend;
     if(plug_mgr)
     {
         delete plug_mgr;
