@@ -328,15 +328,9 @@ namespace DFHack
      */
     class CoreSuspender : public std::unique_lock<std::recursive_timed_mutex> {
         using parent_t = std::unique_lock<std::recursive_timed_mutex>;
-        static_assert(alignof(Core) > 1, "Alignment of core should be more than 1\n");
-        union {
-            Core* core;
-            struct {
-                intptr_t deadlock : 1;
-                intptr_t core : (sizeof(Core*)*CHAR_BIT-1);
-            } bits;
-        };
+        Core* core;
         std::thread::id tid;
+        bool deadlock;
 
     public:
         CoreSuspender() : CoreSuspender{&Core::getInstance()} { }
@@ -350,7 +344,8 @@ namespace DFHack
         CoreSuspender(Core* core, std::defer_lock_t) :
             parent_t{core->CoreSuspendMutex, std::defer_lock},
             core{core},
-            tid{}
+            tid{},
+            deadlock{false}
         {}
 
         void lock() {
@@ -384,7 +379,7 @@ namespace DFHack
             if (!parent_t::try_lock_for(200_ms)) {
                 core->getConsole().printerr("Error: CoreSuspender::try_lock_for timeout. This is either deadlock or very slow frame.\n");
                 is_deadlock_thread() = true;
-                bits.deadlock = true;
+                deadlock = true;
                 return false;
             }
             tid = core->ownerThread.exchange(std::this_thread::get_id());
@@ -393,10 +388,8 @@ namespace DFHack
 
         ~CoreSuspender() {
             if (!owns_lock()) {
-                if (bits.deadlock) {
+                if (deadlock)
                     is_deadlock_thread() = false;
-                    bits.deadlock = false;
-                }
                 sub_tool_count();
                 return;
             }
